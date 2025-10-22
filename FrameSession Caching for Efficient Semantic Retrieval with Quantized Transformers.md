@@ -99,6 +99,23 @@ The provided implementation was built into a Java-based orchestration layer over
 ###Note on Multimodal Extensions:
 While llama.cpp does not currently support snapshotting the KV state of multimodal image tokens, we anticipate that the FrameSession caching approach will generalize naturally to image-text models as support matures. In digital asset management (DAM) scenarios, this unlocks repeated, deterministic tagging passes over image content—e.g., object detection, semantic annotation, or caption extraction—using cached state. Just as textual sessions can be resumed and queried efficiently, image embeddings or vision-language attention states could be reused for fast, layered semantic enrichment of visual media. As multimodal KV caching becomes feasible, we expect these performance gains to extend directly to vision-aware workflows.
 
+###Scalable Hybrid Retrieval: A Multi-Stage Funnel
+The components described—Framesession Caching, semantic tagging, and exact vector re-ranking—combine to form a highly efficient, multi-stage retrieval architecture that scales to millions of documents without sacrificing accuracy.
+
+This hybrid model solves the primary scaling challenge: it avoids running expensive vector computations or Framesession loads on the entire corpus. Instead, it uses a "funnel" approach that applies the cheapest filter first, saving the most computationally expensive (and most intelligent) pass for a small, highly-relevant candidate set.
+
+The workflow is as follows:
+
+LLM-Tag Classification (Fastest Filter): A user's natural-language query is first passed to a model (e.g., Qwen in /no_think mode) with a constrained list of valid topics. The model performs a fast classification, mapping the fuzzy query to a precise, stemmed tag (e.g., mathematics).
+
+Metadata Pre-Filter (Cheap Filter): This precise tag is used to run a millisecond-fast metadata search against the corpus's search index (e.g., Elasticsearch or a custom stemmed index). This instantly reduces the search space from millions of documents to a manageable candidate set (e.g., 10,000 documents) that are known to be on-topic.
+
+Exact Vector Re-ranking (Accurate Filter): This 10,000-document set is now small enough to make a brute-force, 100%-recall vector sort (O(N)) viable and superior to an Approximate (ANN) index. The system runs an exact dot-product sort (like the sortByVector method) on this set, re-ranking the 10,000 candidates by their true semantic similarity to the query and producing a Top-K list (e.g., Top 20).
+
+Framesession Deep Pass (Cognitive Pass): Finally, the system loads the .framesession files for only these Top 20 documents. It then performs the final, high-intelligence query against this "pre-understood" context to synthesize an answer, find the exact evidence, or perform its final reasoning.
+
+This architecture leverages the best tool for each stage: fast metadata search for breadth, 100%-accurate vector search for precision, and Framesession Caching for instant-on cognition and synthesis, all while remaining economically viable on commodity hardware.
+
 ## Conclusion
 
 We presented a novel **FrameSession Caching** approach for LLM-based semantic retrieval, and provided a comprehensive evaluation using quantized transformer models. Our results show that caching transformer KV states can drastically improve query efficiency by eliminating redundant computation, **while preserving high accuracy**. In a physics textbook scenario, an 8B quantized model reached 95% accuracy in retrieval with our method, and even a 4B model achieved 90%, confirming that quantization and caching together enable small models to punch above their weight. Ingestion and storage scales linearly with model size, which makes planning for larger corpora or models straightforward. We also identified an I/O bottleneck in query scoring, suggesting that future work should explore optimizations like concurrent cache loading, memory-mapped caches, or smarter query batching to fully capitalize on the speedups from caching.
